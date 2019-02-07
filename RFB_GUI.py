@@ -1,7 +1,27 @@
+from __future__ import print_function
 import sys
+import torch
+import torch.backends.cudnn as cudnn
 import numpy as np
-from PyQt5 import QtWidgets, QtGui, QtCore
-from PIL import Image
+from data import AnnotationTransform, BaseTransform, VOC_300, VOC_512, COCO_300, COCO_512, COCO_mobile_300
+import cv2
+from layers.functions import Detect, PriorBox
+import matplotlib.patches as patches
+from collections import OrderedDict
+from PyQt5 import QtWidgets, QtCore, QtGui
+from PyQt5.QtGui import *
+from PyQt5.QtWidgets import *
+from PyQt5.QtCore import *
+from models.RFB_Net_vgg import build_net
+import time
+
+classes = ['aeroplane', 'ship', 'storage_tank', 'baseball_diamond', 'tennis_court', 'basketball_court',
+           'ground_track_field', 'harbor', 'bridge', 'vehicle']
+cfg = VOC_300
+priorbox = PriorBox(cfg)
+cuda = True
+numclass = 21
+trained_model = 'weights/RFB_vgg_NWPU_300.pth'
 
 
 class RFB_GUI(QtWidgets.QMainWindow):
@@ -17,20 +37,99 @@ class RFB_GUI(QtWidgets.QMainWindow):
         self.file_item.setShortcut('Ctrl+O')
         self.file_item.setStatusTip('Open new file')
         self.file_item.triggered.connect(self.select_file)
-
         self.file = self.menuBar().addMenu('File')
         self.file.addAction(self.file_item)
 
+        self.label = QLabel(self)
+        self.label.setText("显示图片")
+        self.setCentralWidget(self.label)
+
+        self.net = build_net('test', 300, numclass)  # initialize detector
+        state_dict = torch.load(trained_model)
+
+        new_state_dict = OrderedDict()
+        for k, v in state_dict.items():
+            head = k[:7]
+            if head == 'module.':
+                name = k[7:]  # remove `module.`
+            else:
+                name = k
+            new_state_dict[name] = v
+        self.net.load_state_dict(new_state_dict)
+        self.net.eval()
+        if cuda:
+            self.net = self.net.cuda()
+            cudnn.benchmark = True
+        else:
+            self.net = self.net.cpu()
+        print('Finished loading model!')
+
     def select_file(self):
-        file_name = QtWidgets.QFileDialog.getOpenFileName(self, 'Select image', r'./',
+        file_path = QtWidgets.QFileDialog.getOpenFileName(self, 'Select image',
+                                                          r'/home/zcy/data/NWPU_VHR-10_dataset/positive_image_set',
                                                           "Image files(*.bmp *.jpg *.pbm *.pgm *.png *.ppm *.xbm *.xpm)"
                                                           ";;All files (*.*)")
-        try:
-            img = Image.open(file_name[0])
-        except Exception as e:
-            QtWidgets.QMessageBox.information(self, "Alert", str(e))
+        # try:
+        self.detect(file_path[0])
+        # except Exception as e:
+        #     QtWidgets.QMessageBox.information(self, "Alert", str(e))
 
-    def nms_py(dets, thresh):
+    def detect(self, file_name):
+        start_time = time.time()
+        img = cv2.imread(file_name)
+        scale = torch.Tensor([img.shape[1], img.shape[0],
+                              img.shape[1], img.shape[0]])
+        detector = Detect(numclass, 0, cfg)
+        transform = BaseTransform(self.net.size, (123, 117, 104), (2, 0, 1))
+        with torch.no_grad():
+            x = transform(img).unsqueeze(0)
+            if cuda:
+                x = x.cuda()
+                scale = scale.cuda()
+        out = self.net(x)  # forward pass
+        with torch.no_grad():
+            priors = priorbox.forward()
+            if cuda:
+                priors = priors.cuda()
+        boxes, scores = detector.forward(out, priors)
+        boxes = boxes[0]
+        scores = scores[0]
+        boxes *= scale
+        boxes = boxes.cpu().numpy()
+        scores = scores.cpu().numpy()
+        # Create figure and axes
+        # Display the image
+
+        # scale each detection back up to the image
+        result_set = []
+        for j in range(1, numclass):
+            max_ = max(scores[:, j])
+            inds = np.where(scores[:, j] > 0.2)[0]  # conf > 0.6
+            if inds is None:
+                continue
+            c_bboxes = boxes[inds]
+            c_scores = scores[inds, j]
+            c_dets = np.hstack((c_bboxes, c_scores[:, np.newaxis])).astype(
+                np.float32, copy=False)
+            keep = self.nms_py(c_dets, 0.6)
+            c_dets = c_dets[keep, :]
+            c_bboxes = c_dets[:, :4]
+            for bbox in c_bboxes:
+                # Create a Rectangle patch
+                rect = patches.Rectangle((int(bbox[0]), int(bbox[1])), int(bbox[2]) - int(bbox[0]) + 1,
+                                         int(bbox[3]) - int(bbox[1]) + 1, linewidth=1, edgecolor='r')
+                result_set.append(str(rect))
+                cv2.rectangle(img, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])), (255, 0, 0), 2)
+                cv2.imwrite("my_test.png", img)
+
+        end_time = time.time()
+        print(end_time - start_time)
+        img_data = QtGui.QPixmap("my_test.png")
+        img_size = img_data.size()
+        self.label.resize(img_size.width(), img_size.height())
+        self.label.setPixmap(img_data)
+
+    def nms_py(self, dets, thresh):
         x1 = dets[:, 0]
         y1 = dets[:, 1]
         x2 = dets[:, 2]
