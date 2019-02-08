@@ -3,7 +3,7 @@ import sys
 import torch
 import torch.backends.cudnn as cudnn
 import numpy as np
-from data import AnnotationTransform, BaseTransform, VOC_300, VOC_512, COCO_300, COCO_512, COCO_mobile_300
+from data import BaseTransform, VOC_300, VOC_512
 import cv2
 from layers.functions import Detect, PriorBox
 import matplotlib.patches as patches
@@ -17,11 +17,6 @@ import time
 
 classes = ['aeroplane', 'ship', 'storage_tank', 'baseball_diamond', 'tennis_court', 'basketball_court',
            'ground_track_field', 'harbor', 'bridge', 'vehicle']
-cfg = VOC_300
-priorbox = PriorBox(cfg)
-cuda = True
-numclass = 21
-trained_model = 'weights/RFB_vgg_NWPU_300.pth'
 
 
 class RFB_GUI(QtWidgets.QMainWindow):
@@ -29,35 +24,42 @@ class RFB_GUI(QtWidgets.QMainWindow):
         super(RFB_GUI, self).__init__()
 
         self.setWindowTitle("RFB-GUI Demo Program")
-        self.resize(1280, 720)
-        self.statusBar()
+        self.resize(1280, 900)
         self.setFocus()
 
         self.file_item = QtWidgets.QAction('Open image', self)
         self.file_item.setShortcut('Ctrl+O')
         self.file_item.setStatusTip('Open new file')
         self.file_item.triggered.connect(self.select_file)
-        self.file = self.menuBar().addMenu('File')
-        self.file.addAction(self.file_item)
+        # self.file = self.menuBar().addMenu('File')
+        # self.file.addAction(self.file_item)
 
         self.label = QLabel(self)
-        self.label.setText("显示图片")
+        self.label.setText("Please drag image here\nor\nPress Ctrl+O to select")
+        self.label.setAlignment(Qt.AlignCenter)
+        self.label.setFont(QtGui.QFont("Ubuntu Mono", 30))
+        self.label.addAction(self.file_item)
         self.setCentralWidget(self.label)
 
-        self.net = build_net('test', 300, numclass)  # initialize detector
-        state_dict = torch.load(trained_model)
+        self.cfg = VOC_300
+        self.priorbox = PriorBox(self.cfg)
+        self.cuda = True
+        self.numclass = 21
+        self.trained_model = 'weights/RFB_vgg_NWPU_300.pth'
+        self.net = build_net('test', 300, self.numclass)  # initialize detector
+        state_dict = torch.load(self.trained_model)
 
         new_state_dict = OrderedDict()
         for k, v in state_dict.items():
             head = k[:7]
             if head == 'module.':
-                name = k[7:]  # remove `module.`
+                name = k[7:]
             else:
                 name = k
             new_state_dict[name] = v
         self.net.load_state_dict(new_state_dict)
         self.net.eval()
-        if cuda:
+        if self.cuda:
             self.net = self.net.cuda()
             cudnn.benchmark = True
         else:
@@ -79,17 +81,17 @@ class RFB_GUI(QtWidgets.QMainWindow):
         img = cv2.imread(file_name)
         scale = torch.Tensor([img.shape[1], img.shape[0],
                               img.shape[1], img.shape[0]])
-        detector = Detect(numclass, 0, cfg)
+        detector = Detect(self.numclass, 0, self.cfg)
         transform = BaseTransform(self.net.size, (123, 117, 104), (2, 0, 1))
         with torch.no_grad():
             x = transform(img).unsqueeze(0)
-            if cuda:
+            if self.cuda:
                 x = x.cuda()
                 scale = scale.cuda()
-        out = self.net(x)  # forward pass
+        out = self.net(x)
         with torch.no_grad():
-            priors = priorbox.forward()
-            if cuda:
+            priors = self.priorbox.forward()
+            if self.cuda:
                 priors = priors.cuda()
         boxes, scores = detector.forward(out, priors)
         boxes = boxes[0]
@@ -102,7 +104,7 @@ class RFB_GUI(QtWidgets.QMainWindow):
 
         # scale each detection back up to the image
         result_set = []
-        for j in range(1, numclass):
+        for j in range(1, self.numclass):
             max_ = max(scores[:, j])
             inds = np.where(scores[:, j] > 0.2)[0]  # conf > 0.6
             if inds is None:
@@ -125,8 +127,11 @@ class RFB_GUI(QtWidgets.QMainWindow):
         end_time = time.time()
         print(end_time - start_time)
         img_data = QtGui.QPixmap("my_test.png")
-        img_size = img_data.size()
-        self.label.resize(img_size.width(), img_size.height())
+        height = self.height()
+        width = self.height() / img_data.height() * img_data.width()
+        img_data = img_data.scaled(width, height)
+        self.label.resize(width, height)
+
         self.label.setPixmap(img_data)
 
     def nms_py(self, dets, thresh):
