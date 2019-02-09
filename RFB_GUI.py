@@ -23,6 +23,7 @@ class RFB_GUI(QtWidgets.QMainWindow):
     def __init__(self):
         super(RFB_GUI, self).__init__()
 
+        self.MyMessageBox(self)
         self.setWindowTitle("RFB-GUI Demo Program")
         self.resize(1280, 900)
         self.setFocus()
@@ -33,15 +34,12 @@ class RFB_GUI(QtWidgets.QMainWindow):
 
         self.label = self.DragLabel("Please drag image here\nor\nPress Ctrl+O to select", self)
         self.label.addAction(self.file_item)
-
         self.setCentralWidget(self.label)
 
-        self.cfg = VOC_300
         self.priorbox = PriorBox(self.cfg)
         self.cuda = True
         self.numclass = 21
-        self.trained_model = 'weights/RFB_vgg_NWPU_300.pth'
-        self.net = build_net('test', 300, self.numclass)  # initialize detector
+        self.net = build_net('test', self.input_size, self.numclass)  # initialize detector
         state_dict = torch.load(self.trained_model)
 
         new_state_dict = OrderedDict()
@@ -128,6 +126,7 @@ class RFB_GUI(QtWidgets.QMainWindow):
         img_data = img_data.scaled(width, height)
         object.label.resize(width, height)
         object.label.setPixmap(img_data)
+        self.setFocus()
 
     def nms_py(self, dets, thresh):
         x1 = dets[:, 0]
@@ -166,6 +165,29 @@ class RFB_GUI(QtWidgets.QMainWindow):
                 if ovr >= thresh:
                     suppressed[j] = 1
         return keep
+
+    class MyMessageBox(QMessageBox):
+        def __init__(self, parent):
+            super().__init__()
+            self.setWindowTitle('Input Size')
+            self.setText("Please choose the input image size ")
+            self.setFont(QtGui.QFont("Ubuntu Mono", 14))
+
+            _300_button = self.addButton(self.tr('300 x 300'), QMessageBox.ActionRole)
+            _512_button = self.addButton(self.tr('512 x 512'), QMessageBox.ActionRole)
+            cancel_button = self.addButton(' Cancel ', QMessageBox.ActionRole)
+            self.exec_()
+            button = self.clickedButton()
+            if button == _300_button:
+                parent.input_size = 300
+                parent.cfg = VOC_300
+                parent.trained_model = 'weights/RFB_vgg_NWPU_300.pth'
+            elif button == _512_button:
+                parent.input_size = 512
+                parent.cfg = VOC_512
+                parent.trained_model = 'weights/RFB_vgg_NWPU_512.pth'
+            elif button == cancel_button:
+                sys.exit()
 
     class DragLabel(QLabel):
         def __init__(self, text, parent):
