@@ -23,7 +23,7 @@ class RFB_GUI(QtWidgets.QMainWindow):
     def __init__(self):
         super(RFB_GUI, self).__init__()
 
-        self.MyMessageBox(self)
+        MyMessageBox(self)
         self.setWindowTitle("RFB-GUI Demo Program")
         self.resize(1280, 900)
         self.setFocus()
@@ -32,7 +32,7 @@ class RFB_GUI(QtWidgets.QMainWindow):
         self.file_item.setShortcut('Ctrl+O')
         self.file_item.triggered.connect(self.select_file)
 
-        self.label = self.DragLabel("Please drag image here\nor\nPress Ctrl+O to select", self)
+        self.label = DragLabel("Please drag image here\nor\nPress Ctrl+O to select", self)
         self.label.addAction(self.file_item)
         self.setCentralWidget(self.label)
 
@@ -166,42 +166,44 @@ class RFB_GUI(QtWidgets.QMainWindow):
                     suppressed[j] = 1
         return keep
 
-    class MyMessageBox(QMessageBox):
-        def __init__(self, parent):
-            super().__init__()
-            self.setWindowTitle('Input Size')
-            self.setText("Please choose the input image size ")
-            self.setFont(QtGui.QFont("Ubuntu Mono", 14))
 
-            _300_button = self.addButton(self.tr('300 x 300'), QMessageBox.ActionRole)
-            _512_button = self.addButton(self.tr('512 x 512'), QMessageBox.ActionRole)
-            cancel_button = self.addButton(' Cancel ', QMessageBox.ActionRole)
-            self.exec_()
-            button = self.clickedButton()
-            if button == _300_button:
-                parent.input_size = 300
-                parent.cfg = VOC_300
-                parent.trained_model = 'weights/RFB_vgg_NWPU_300.pth'
-            elif button == _512_button:
-                parent.input_size = 512
-                parent.cfg = VOC_512
-                parent.trained_model = 'weights/RFB_vgg_NWPU_512.pth'
-            elif button == cancel_button:
-                sys.exit()
+class MyMessageBox(QMessageBox):
+    def __init__(self, parent):
+        super().__init__()
+        self.setWindowTitle('Input Size')
+        self.setText("Please choose the input image size ")
+        self.setFont(QtGui.QFont("Ubuntu Mono", 14))
 
-    class DragLabel(QLabel):
-        def __init__(self, text, parent):
-            super().__init__(text, parent)
-            self.parent = parent
-            self.setAcceptDrops(True)
-            self.setFont(QtGui.QFont("Ubuntu Mono", 30))
-            self.setAlignment(Qt.AlignCenter)
+        _300_button = self.addButton(self.tr('300 x 300'), QMessageBox.ActionRole)
+        _512_button = self.addButton(self.tr('512 x 512'), QMessageBox.ActionRole)
+        cancel_button = self.addButton(' Cancel ', QMessageBox.ActionRole)
+        self.exec_()
+        button = self.clickedButton()
+        if button == _300_button:
+            parent.input_size = 300
+            parent.cfg = VOC_300
+            parent.trained_model = 'weights/RFB_vgg_NWPU_300.pth'
+        elif button == _512_button:
+            parent.input_size = 512
+            parent.cfg = VOC_512
+            parent.trained_model = 'weights/RFB_vgg_NWPU_512.pth'
+        elif button == cancel_button:
+            sys.exit()
 
-        def dragEnterEvent(self, QDragEnterEvent):
-            QDragEnterEvent.accept()
 
-        def dropEvent(self, QDropEvent):
-            self.parent.detect(QDropEvent.mimeData().text()[7:], self.parent)
+class DragLabel(QLabel):
+    def __init__(self, text, parent):
+        super().__init__(text, parent)
+        self.parent = parent
+        self.setAcceptDrops(True)
+        self.setFont(QtGui.QFont("Ubuntu Mono", 30))
+        self.setAlignment(Qt.AlignCenter)
+
+    def dragEnterEvent(self, QDragEnterEvent):
+        QDragEnterEvent.accept()
+
+    def dropEvent(self, QDropEvent):
+        self.parent.detect(QDropEvent.mimeData().text()[7:], self.parent)
 
 
 if __name__ == '__main__':
